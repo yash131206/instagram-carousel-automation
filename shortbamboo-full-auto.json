@@ -1,0 +1,308 @@
+{
+  "name": "ShortBamboo Carousel - Full Auto",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1,
+                4
+              ],
+              "triggerAtHour": 9,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "d43377ee-b151-4023-a1a7-102bd59070de",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ig",
+              "name": "igUserId",
+              "value": "PASTE_YOUR_IG_USER_ID",
+              "type": "string"
+            },
+            {
+              "id": "tk",
+              "name": "accessToken",
+              "value": "PASTE_YOUR_LONG_LIVED_ACCESS_TOKEN",
+              "type": "string"
+            },
+            {
+              "id": "api",
+              "name": "apiBase",
+              "value": "https://graph.instagram.com/v23.0",
+              "type": "string"
+            },
+            {
+              "id": "geminiKey",
+              "name": "geminiKey",
+              "value": "PASTE_YOUR_GEMINI_API_KEY",
+              "type": "string"
+            },
+            {
+              "id": "cloudName",
+              "name": "cloudName",
+              "value": "PASTE_YOUR_CLOUDINARY_CLOUD_NAME",
+              "type": "string"
+            },
+            {
+              "id": "bgPublicId",
+              "name": "bgPublicId",
+              "value": "PASTE_YOUR_CLOUDINARY_BG_PUBLIC_ID",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "91f65ded-74d9-424f-8abf-42e99579992f",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "1Z85AbvV6AH6AH3xKWWK0l5LCWhz9AGwaG2FMaYqOLD0",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "status",
+              "lookupValue": "ToDo"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a7b4cb0e-e5a3-47f7-89be-246731edbdc1",
+      "name": "Get Pending Posts",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "a3aee5e9-b18f-4f12-830b-c54d9cacc507",
+      "name": "Loop Carousels",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ===== Instagram Carousel Publisher (v3 - auto-detect endpoint) =====\nconst cfg = $('Config').first().json;\nconst TOKEN = cfg.accessToken;\nconst helpers = this.helpers;\n\n// API bases: with version + without version\nconst bases = [];\nconst b0 = (cfg.apiBase || 'https://graph.instagram.com/v23.0').replace(/\\/+$/, '');\nbases.push(b0);\nconst bNo = b0.replace(/\\/v\\d+(\\.\\d+)?$/, '');\nif (bNo !== b0) bases.push(bNo);\n\nconst row = $input.first().json;\n\n// Slide URLs ikattha karo: slide_1 ... slide_10\nconst urls = [];\nfor (let i = 1; i <= 10; i++) {\n  const u = row['slide_' + i];\n  if (u && String(u).trim() !== '') urls.push(String(u).trim());\n}\nif (urls.length < 2) throw new Error('Carousel ke liye kam se kam 2 slides chahiye (mila: ' + urls.length + ')');\nif (urls.length > 10) urls.length = 10;\n\nconst wait = (ms) => new Promise((r) => setTimeout(r, ms));\n\nfunction errText(e) {\n  const parts = [];\n  try { const r = e && e.response; if (r) { if (r.body) parts.push(typeof r.body === 'string' ? r.body : JSON.stringify(r.body)); if (r.data) parts.push(typeof r.data === 'string' ? r.data : JSON.stringify(r.data)); } } catch (_) {}\n  try { if (e && e.error) parts.push(JSON.stringify(e.error)); } catch (_) {}\n  try { if (e && e.message) parts.push(e.message); } catch (_) {}\n  return parts.join(' | ') || String(e);\n}\n\nfunction req(base, method, path, params) {\n  const qs = Object.assign({}, params || {}, { access_token: TOKEN });\n  return helpers.httpRequest({ method, url: base + path, qs, json: true });\n}\n\n// Candidate user ids: config value + /me id + /me user_id + 'me'\nconst ids = [];\nif (cfg.igUserId) ids.push(String(cfg.igUserId).trim());\nfor (const b of bases) {\n  try {\n    const me = await req(b, 'GET', '/me', { fields: 'id,user_id,username' });\n    if (me && me.id) ids.push(String(me.id));\n    if (me && me.user_id) ids.push(String(me.user_id));\n  } catch (_) {}\n}\nids.push('me');\nconst uniqIds = [...new Set(ids.filter(Boolean))];\n\n// Probe: find a (base, id) combo that can create a container\nlet BASE = null, IG = null, firstChildId = null, lastMsg = '';\nouter:\nfor (const b of bases) {\n  for (const id of uniqIds) {\n    try {\n      const res = await req(b, 'POST', '/' + id + '/media', { image_url: urls[0], is_carousel_item: true });\n      if (res && res.id) { BASE = b; IG = id; firstChildId = res.id; break outer; }\n      lastMsg = 'No id in response: ' + JSON.stringify(res);\n    } catch (e) {\n      lastMsg = errText(e);\n    }\n  }\n}\nif (!BASE) throw new Error('Container create nahi hua. Last error: ' + lastMsg);\n\n// Remaining children\nconst childIds = [firstChildId];\nfor (let i = 1; i < urls.length; i++) {\n  const res = await req(BASE, 'POST', '/' + IG + '/media', { image_url: urls[i], is_carousel_item: true });\n  if (!res || !res.id) throw new Error('Child fail: ' + JSON.stringify(res));\n  childIds.push(res.id);\n}\n\n// Parent CAROUSEL container\nconst parent = await req(BASE, 'POST', '/' + IG + '/media', { media_type: 'CAROUSEL', children: childIds.join(','), caption: row.caption || '' });\nif (!parent || !parent.id) throw new Error('Parent fail: ' + JSON.stringify(parent));\n\n// Instagram ko validate karne ka time do\nawait wait(10000);\n\n// Publish\nconst pub = await req(BASE, 'POST', '/' + IG + '/media_publish', { creation_id: parent.id });\nif (!pub || !pub.id) throw new Error('Publish fail: ' + JSON.stringify(pub));\n\n// Permalink (optional)\nlet permalink = '';\ntry { const info = await req(BASE, 'GET', '/' + pub.id, { fields: 'permalink' }); permalink = info.permalink || ''; } catch (_) {}\n\nreturn [{ json: { id: row.id, mediaId: pub.id, permalink: permalink, slideCount: urls.length, usedBase: BASE, usedId: IG, publishedAt: new Date().toISOString() } }];\n"
+      },
+      "id": "0c8208f3-a62b-4e4a-8f9a-9df4e875c3e1",
+      "name": "Publish Carousel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1Z85AbvV6AH6AH3xKWWK0l5LCWhz9AGwaG2FMaYqOLD0",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "status": "Done",
+            "media_id": "={{ $json.mediaId }}",
+            "permalink": "={{ $json.permalink }}"
+          },
+          "matchingColumns": [
+            "id"
+          ]
+        },
+        "options": {}
+      },
+      "id": "862f71e2-98e3-4c45-ba68-c76c84dbe072",
+      "name": "Mark Done",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        1100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "maxItems": 1,
+        "keep": "firstItems"
+      },
+      "id": "a25ca83a-babe-4e58-bd74-6f24e2ec910a",
+      "name": "One Per Run",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ===== AI Content + Auto Slides (full auto) =====\nconst cfg = $('Config').first().json;\nconst helpers = this.helpers;\n\nconst row = $input.first().json;\nconst topic = String(row.topic || '').trim();\nif (!topic) throw new Error('Sheet ke \"topic\" column me kuch likho (id ' + row.id + ')');\n\nconst GEMINI_KEY = cfg.geminiKey;\nconst CLOUD = cfg.cloudName;\nconst BG = cfg.bgPublicId;\nif (!GEMINI_KEY || !CLOUD || !BG) throw new Error('Config me geminiKey / cloudName / bgPublicId bharo');\n\nconst prompt =\n  'You write Instagram carousel content for a creator page \"ShortBamboo\".\\n' +\n  'Topic: ' + topic + '\\n' +\n  'Return ONLY JSON in this exact shape: {\"caption\": \"...\", \"slides\": [\"...\", \"...\"]}\\n' +\n  'Rules:\\n' +\n  '- caption: 1-2 engaging lines, then 5-8 relevant hashtags. Max 2000 characters.\\n' +\n  '- slides: exactly 5. Each slide = short punchy headline (max 6 words), then a newline, then one supporting line (max 12 words).\\n' +\n  '- No emojis. Simple English (use Hinglish only if the topic is Hinglish).';\n\nconst res = await helpers.httpRequest({\n  method: 'POST',\n  url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',\n  qs: { key: GEMINI_KEY },\n  body: {\n    contents: [{ parts: [{ text: prompt }] }],\n    generationConfig: { responseMimeType: 'application/json' },\n  },\n  json: true,\n});\n\nlet text = '';\ntry { text = res.candidates[0].content.parts[0].text; } catch (e) {}\nif (!text) throw new Error('Gemini se jawab nahi mila: ' + JSON.stringify(res).slice(0, 400));\n\nlet data;\ntry { data = JSON.parse(text); } catch (e) { throw new Error('AI ka JSON parse nahi hua: ' + text.slice(0, 400)); }\n\nconst caption = data.caption || '';\nconst slides = (data.slides || []).slice(0, 8);\nif (slides.length < 2) throw new Error('AI ne 2 se kam slides diye');\n\nfunction encText(s) {\n  return encodeURIComponent(String(s))\n    .replace(/%2C/gi, '%252C')\n    .replace(/%2F/gi, '%252F');\n}\n\nconst out = { id: row.id, caption: caption };\nslides.forEach((t, i) => {\n  const overlay = 'l_text:Arial_54_bold_alignment_center:' + encText(t) + ',co_rgb:FFFFFF,c_fit,w_880';\n  out['slide_' + (i + 1)] = 'https://res.cloudinary.com/' + CLOUD + '/image/upload/w_1080,h_1350,c_fill,q_auto,f_jpg/' + overlay + '/fl_layer_apply,g_center/' + BG;\n});\nfor (let i = slides.length + 1; i <= 8; i++) out['slide_' + i] = '';\n\nreturn [{ json: out }];"
+      },
+      "id": "ai-slides-0001",
+      "name": "AI + Slides",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        550,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Get Pending Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Pending Posts": {
+      "main": [
+        [
+          {
+            "node": "One Per Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Carousels": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Publish Carousel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Carousel": {
+      "main": [
+        [
+          {
+            "node": "Mark Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Done": {
+      "main": [
+        [
+          {
+            "node": "Loop Carousels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One Per Run": {
+      "main": [
+        [
+          {
+            "node": "AI + Slides",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI + Slides": {
+      "main": [
+        [
+          {
+            "node": "Loop Carousels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "0293188b-193c-4e51-8df5-2ef681a95056",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [],
+  "pinData": {}
+}
