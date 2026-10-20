@@ -1,9 +1,11 @@
 # Instagram Carousel Automation — Setup Guide
 
-Ye guide tumhe zero-cost setup ke through le jaayegi: **Google Sheet → n8n (tumhara tablet) → Instagram carousel publish**. Volume ke hisaab se (8 carousels/month, 5–8 slides each) sab kuch free tiers me fit ho jaata hai.
+**Raasta:** Instagram API with **Instagram Login** (`graph.instagram.com`) — isme Facebook Page ki zarurat nahi.
+**Volume:** 8 carousels/month (Somvaar + Guruvaar, 9 AM) → ~₹0/month.
+**Platform:** n8n self-hosted (tumhara tablet).
 
-Files jo tumhe mili hain:
-- `instagram-carousel-publisher.json` — n8n workflow (import karo)
+Files:
+- `carousel-workflow-shortbamboo.json` — n8n workflow (import karo)
 - `carousel-sheet-template.csv` — Google Sheet ka structure
 - `setup-guide.md` — yahi document
 
@@ -11,159 +13,111 @@ Files jo tumhe mili hain:
 
 ## Kaam kaise karega
 
-1. Tum Google Sheet me har carousel ki row bharo — caption + slide image URLs, aur status `ToDo`.
-2. n8n (schedule par) us sheet ko padhta hai.
-3. Har slide ka Instagram *child container* banata hai, phir unhe jod kar ek *carousel container*, phir publish karta hai.
-4. Sheet me status `Done` + post ka permalink likh deta hai.
-
-Ek baar set ho gaya, to tumhe sirf sheet bharni hai — posting khud ho jaayegi.
+1. Google Sheet me har carousel ki row bharo — caption + slide image URLs, status `ToDo`.
+2. n8n (Somvaar/Guruvaar 9 AM) sheet padhta hai aur **ek** pending carousel uthati hai.
+3. Har slide ka child container → phir parent `CAROUSEL` container → wait → publish.
+4. Sheet me status `Done` + permalink likh deta hai.
 
 ---
 
-## Kya chahiye (checklist)
+## Part 1 — Meta app + Instagram Login (tumne kar liya)
 
-- [ ] Instagram **Business ya Creator** account, ek Facebook Page se linked
-- [ ] Meta Developer app + **long-lived access token** (`instagram_content_publish` scope ke saath)
-- [ ] Tumhara **Instagram User ID**
-- [ ] Ek Google Sheet (template CSV se banao)
-- [ ] Images ke liye **public HTTPS URLs** (Cloudinary free tier recommended)
-- [ ] n8n chalu, tablet par (self-hosted)
+Reference ke liye, jo steps tumne kiye:
 
----
+1. Instagram ko **Business/Creator** banaya (Settings → Account type and tools).
+2. [developers.facebook.com](https://developers.facebook.com) → **Create App** → type **Business** → use case **"Manage messaging & content on Instagram"** → business portfolio **ShortBamboo**.
+3. App ke andar **API setup with Instagram login**.
+4. **Permissions and features** me `instagram_business_content_publish` (aur `instagram_business_basic`) add kiya.
+5. **Roles → Instagram Tester** me apna account add kiya + Instagram app me invite accept kiya.
+6. App ko **Live** kiya (App settings → Basic me Privacy Policy URL + Category bhar ke, Publish).
+7. **Generate token** → Instagram par **Allow** → token mila.
 
-## Step 1 — Meta app, IG ID aur token
-
-1. **IG ko Business/Creator banao** aur usse ek Facebook Page se link karo (Instagram app → Settings → Account type).
-2. [developers.facebook.com](https://developers.facebook.com) par jao → **Create App** → type **Business**.
-3. App me **Instagram** product add karo (aur **Facebook Login**).
-4. **Instagram User ID** nikaalo — Graph API Explorer me chalao:
-   ```
-   GET /me/accounts?fields=name,instagram_business_account
-   ```
-   Jis Page se tumhara IG juda hai, uske `instagram_business_account.id` ko copy karo — **yahi tumhara IG User ID hai**.
-5. **Token banao** — Graph API Explorer me ye scopes select karo:
-   `instagram_basic`, `pages_show_list`, `instagram_content_publish`, `pages_read_engagement`
-   Phir **Generate Access Token** dabao aur token copy karo.
-6. **Long-lived token me badlo** (60 din chalta hai):
-   ```
-   GET https://graph.facebook.com/v21.0/oauth/access_token
-        ?grant_type=fb_exchange_token
-        &client_id=APP_ID
-        &client_secret=APP_SECRET
-        &fb_exchange_token=SHORT_LIVED_TOKEN
-   ```
-   *Behtar option:* Meta Business Manager me ek **System User** banao aur uska token use karo — woh **expire nahi hota**, to har 60 din refresh karne ki tension nahi.
-
-> Dhyan: token ko kabhi workflow me hardcode na karo. Isko n8n credentials me rakhna best practice hai (neeche Step 5 dekho).
+> Note: ye raasta `graph.instagram.com` use karta hai aur `instagram_business_*` permissions maangta hai — Facebook Page ki zarurat nahi.
 
 ---
 
-## Step 2 — Google Sheet banao
+## Part 2 — Token aur IG User ID
 
-1. Google Sheets me naya spreadsheet banao.
-2. `carousel-sheet-template.csv` ko **File → Import → Upload** se import karo (ya columns manually banao).
-3. Columns yahi hone chahiye (naam exactly same):
+- **Access token** — `IGAA...` se shuru hone wala lamba string (~60 din chalta hai).
+- **IG User ID** — numeric ID (jaise `17841484077985141`), dashboard me account ke naam ke neeche dikhta hai.
 
-   `id` · `status` · `caption` · `slide_1` … `slide_8` · `media_id` · `permalink`
-
-4. Har carousel ke liye ek row bharo:
-   - `id` — koi unique number (1, 2, 3…)
-   - `status` — `ToDo` (jab post karna ho)
-   - `caption` — Instagram caption (2200 char tak)
-   - `slide_1` … `slide_8` — har slide ka public image URL
-   - `media_id`, `permalink` — khaali chhodo, workflow khud bhar dega
+> Dono secret hain. Kisi file/URL/screenshot me na daalo — sirf n8n ke Config node me.
 
 ---
 
-## Step 3 — Images ko public URL do
+## Part 3 — n8n setup
 
-Instagram ko images ek **public HTTPS URL** se chahiye — file upload ya base64 accept nahi karta.
+1. n8n → **Workflows → Import from File** → `carousel-workflow-shortbamboo.json`.
+2. **Config** node kholo aur bharo:
+   - `igUserId` → numeric IG User ID
+   - `accessToken` → `IGAA...` token
+   - `apiBase` → `https://graph.instagram.com/v23.0` (jaisa hai rehne do)
+3. **Get Pending Posts** aur **Mark Done** node kholo → dono me apna **Google Sheets credential** attach karo (n8n → Credentials → New → Google Sheets OAuth2 API).
+4. Dono Sheets nodes me **Document ID** aur **tab name** check kar lo.
 
-**Sabse aasan:** Cloudinary (free plan, 25 credits/month — tumhare volume ke liye kaafi).
-1. [cloudinary.com](https://cloudinary.com) par free account banao.
-2. Images upload karo.
-3. Har image ka **delivery URL** copy karo (kuch aisa: `https://res.cloudinary.com/<cloud>/image/upload/v123/slide1.jpg`).
-4. Woh URL sheet ke `slide_N` column me paste karo.
+Workflow ka flow:
+`Schedule Trigger → Config → Get Pending Posts → One Per Run → Loop Carousels → Publish Carousel → Mark Done`
 
-> Agar slides tum **AI Studio me manually** bana rahe ho (Gemini Pro se), to wahan se images download karke Cloudinary par upload kar do. Isse AI ka API kharcha **₹0** rehta hai.
-
----
-
-## Step 4 — n8n me import karo
-
-1. n8n kholo → **Workflows → Import from File** → `instagram-carousel-publisher.json` select karo.
-2. **Config** node kholo aur do value bharo:
-   - `igUserId` → tumhara Instagram User ID (Step 1 se)
-   - `accessToken` → tumhara long-lived token
-3. **Get Pending Posts** aur **Mark Done** node kholo → apni Google Sheet ka **Document ID** daalo (sheet ke URL me `/d/` ke baad ka lamba code).
-4. Dono Google Sheets nodes me apna **Google Sheets credential** attach karo (Step 5).
+- **One Per Run** — har run me sirf **ek** carousel post hoti hai (saare ek saath nahi).
 
 ---
 
-## Step 5 — Credentials
+## Part 4 — Google Sheet
 
-**Google Sheets:** n8n → Credentials → New → *Google Sheets OAuth2 API* → sign in karo. (Ye ek baar ka kaam hai.)
+Columns (naam exactly same):
+`id` · `status` · `caption` · `slide_1` … `slide_8` · `media_id` · `permalink`
 
-**Meta token (behtar practice):** Config node me token daalne ki jagah, ek **Header/Query Auth credential** banao aur use karo. Warna kam se kam Config node me rakho — code me hardcode mat karo.
+Har carousel ke liye ek row:
+- `id` — unique number
+- `status` — `ToDo`
+- `caption` — Instagram caption (2200 char tak)
+- `slide_1` … `slide_8` — har slide ka **public HTTPS URL**
+- `media_id`, `permalink` — khaali chhodo
+
+**Images public HTTPS par honi chahiye** (Instagram file upload accept nahi karta). Cloudinary free tier recommended.
 
 ---
 
-## Step 6 — Test karo, phir chalu karo
+## Part 5 — Test aur activate
 
-1. Sheet me **ek** row `ToDo` rakho, baaki `Done` ya khaali.
-2. n8n me **Schedule Trigger** ko temporarily hatao aur **Manual Trigger** laga kar ek baar chalao (ya Schedule Trigger par "Execute Workflow" dabao).
-3. Check karo:
-   - Execution green hui?
-   - Instagram par carousel live aaya?
-   - Sheet row `Done` hui + `permalink` bhara?
-4. Sab theek ho to workflow ko **Active** kar do. Schedule ab roz subah 9 baje chalega (time badalna ho to Schedule Trigger edit karo).
+1. Sheet me **ek** test row `ToDo` rakho (2-8 slide URLs).
+2. n8n me **Execute Workflow** chalao.
+3. Check: execution green? Instagram par carousel live? sheet row `Done`?
+4. Sab theek → workflow **Active** kar do.
 
 ---
 
 ## Tablet par reliable rakhne ke tips
 
-Android background apps ko maar deta hai — isliye:
-
-- n8n ko **PM2** ya **screen/tmux** me chalao taaki crash par auto-restart ho.
-- **Termux:Boot** lagao taaki tablet restart par n8n khud start ho.
+Android background apps ko maar deta hai:
+- n8n ko **PM2** ya **screen/tmux** me chalao (auto-restart).
+- **Termux:Boot** lagao (restart par khud start).
 - Termux ko **battery optimization se exclude** karo.
-- `termux-wake-lock` on rakho, aur tablet **charged + wifi** par rakho.
-- Apne workflows **regularly export** karo (Settings → Workflows → Export) — tablet kharab hua to backup rahega.
-
-**Webhook chahiye?** n8n ka built-in `--tunnel` band ho gaya hai. Cloudflare Tunnel (free) ya ngrok use karo. Par tumhare setup me zarurat nahi — sab kuch outbound hai.
-
----
-
-## Kharcha (8 carousels/month ≈ 40–64 slides)
-
-| Cheez | Kharcha | Kyun |
-|---|---|---|
-| n8n (tablet) | ₹0 | self-hosted |
-| Instagram publish | ₹0 | Meta API free |
-| Google Sheets | ₹0 | free |
-| Cloudinary hosting | ₹0 | free tier me fit |
-| Caption/text AI (optional) | ₹0 | Gemini free tier |
-| Slide images AI (optional) | ~₹155–190/mo | Gemini Pro ke $10 Cloud credit se cover |
-
-**Asli jeb se: ₹0.**
+- `termux-wake-lock` on rakho; tablet charged + wifi par.
+- Workflows **regularly export** karo (backup).
 
 ---
 
 ## Troubleshooting
 
+- **Token generate nahi ho raha / Allow ke baad redirect nahi** — popup block ho raha hai. Browser me `developers.facebook.com` ke liye popups allow karo; incognito me try karo; Instagram app ke bajaye browser me login karo.
 - **"Carousel ke liye kam se kam 2 slides chahiye"** — sheet me kam se kam 2 `slide_N` URLs bharo.
-- **Publish fail / permission error** — token me `instagram_content_publish` scope hai? IG account Business/Creator hai?
-- **Image error** — URL public HTTPS hai? Cloudinary URL browser me khulta hai?
-- **"Invalid OAuth access token"** — token expire ho gaya (60 din). Long-lived refresh karo ya System User token use karo.
-- **Schedule miss ho gaya** — tablet soya tha. PM2 + wake-lock + battery exclusion check karo.
+- **Publish fail / permission error** — token me `instagram_business_content_publish` hai? account Business/Creator hai?
+- **Image error** — URL public HTTPS hai? browser me khulta hai?
+- **"Invalid OAuth access token"** — token expire (60 din). Dobara generate karo.
+- **Schedule miss** — tablet soya tha. PM2 + wake-lock + battery exclusion check karo.
 
 ---
 
-## Aage kya (optional)
+## Kharcha (8 carousels/month ≈ 40–64 slides)
 
-Agar slides auto-generate karne hain, to **Config** se pehle ek chhota branch jod sakte ho:
-- Gemini API se caption banao (free tier)
-- Nano Banana se slide images banao (~₹0.034/image)
-- Images Cloudinary par upload karo, URL sheet me likho
+| Cheez | Kharcha |
+|---|---|
+| n8n (tablet) | ₹0 |
+| Instagram publish | ₹0 |
+| Google Sheets | ₹0 |
+| Cloudinary hosting | ₹0 (free tier) |
+| Slides (manual AI Studio) | ₹0 |
+| Slides (AI auto-gen) | ~₹155–190/mo (Google AI Pro $10 credit se cover) |
 
-Par tumhare volume par **manual AI Studio route (₹0)** sabse sasta hai. Bolo, to woh branch bhi bana deta hoon.
+**Asli jeb se: ₹0.**

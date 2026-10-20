@@ -1,12 +1,16 @@
 {
-  "name": "Instagram Carousel Publisher (8 posts/month)",
+  "name": "Instagram Carousel Publisher (Instagram Login)",
   "nodes": [
     {
       "parameters": {
         "rule": {
           "interval": [
             {
-              "field": "days",
+              "field": "weeks",
+              "triggerAtDay": [
+                1,
+                4
+              ],
               "triggerAtHour": 9,
               "triggerAtMinute": 0
             }
@@ -36,6 +40,12 @@
               "id": "tk",
               "name": "accessToken",
               "value": "PASTE_YOUR_LONG_LIVED_ACCESS_TOKEN",
+              "type": "string"
+            },
+            {
+              "id": "api",
+              "name": "apiBase",
+              "value": "https://graph.instagram.com/v23.0",
               "type": "string"
             }
           ]
@@ -93,21 +103,21 @@
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
-        440,
+        660,
         0
       ]
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// ===== Instagram Carousel Publisher =====\n// Config node se settings uthao (IG User ID + long-lived access token)\nconst cfg = $('Config').first().json;\nconst IG_ID = cfg.igUserId;\nconst TOKEN = cfg.accessToken;\nconst API = 'https://graph.facebook.com/v21.0';\n\n// Jo carousel row aayi hai (Split In Batches, batchSize 1)\nconst row = $input.first().json;\n\n// Slide URLs ikattha karo: slide_1 ... slide_10\nconst urls = [];\nfor (let i = 1; i <= 10; i++) {\n  const u = row['slide_' + i];\n  if (u && String(u).trim() !== '') urls.push(String(u).trim());\n}\nif (urls.length < 2) throw new Error('Carousel ke liye kam se kam 2 slides chahiye (mila: ' + urls.length + ')');\nif (urls.length > 10) urls.length = 10;\n\nconst wait = (ms) => new Promise((r) => setTimeout(r, ms));\n\n// 1) Har slide ka child container banao (is_carousel_item = true)\nconst childIds = [];\nfor (const url of urls) {\n  const res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: API + '/' + IG_ID + '/media',\n    qs: { image_url: url, is_carousel_item: true, access_token: TOKEN },\n    json: true,\n  });\n  if (!res.id) throw new Error('Child container banane me fail: ' + JSON.stringify(res));\n  childIds.push(res.id);\n}\n\n// 2) Parent CAROUSEL container banao (caption sirf yahan lagta hai)\nconst parent = await this.helpers.httpRequest({\n  method: 'POST',\n  url: API + '/' + IG_ID + '/media',\n  qs: {\n    media_type: 'CAROUSEL',\n    children: childIds.join(','),\n    caption: row.caption || '',\n    access_token: TOKEN,\n  },\n  json: true,\n});\nif (!parent.id) throw new Error('Carousel container banane me fail: ' + JSON.stringify(parent));\n\n// 3) Instagram ko multiple assets validate karne ka time do\nawait wait(10000);\n\n// 4) Publish karo\nconst pub = await this.helpers.httpRequest({\n  method: 'POST',\n  url: API + '/' + IG_ID + '/media_publish',\n  qs: { creation_id: parent.id, access_token: TOKEN },\n  json: true,\n});\nif (!pub.id) throw new Error('Publish fail: ' + JSON.stringify(pub));\n\n// 5) Live post ka permalink lo (optional)\nlet permalink = '';\ntry {\n  const info = await this.helpers.httpRequest({\n    method: 'GET',\n    url: API + '/' + pub.id,\n    qs: { fields: 'permalink', access_token: TOKEN },\n    json: true,\n  });\n  permalink = info.permalink || '';\n} catch (e) { /* permalink optional */ }\n\nreturn [{\n  json: {\n    id: row.id,\n    mediaId: pub.id,\n    permalink: permalink,\n    slideCount: urls.length,\n    publishedAt: new Date().toISOString(),\n  },\n}];"
+        "jsCode": "// ===== Instagram Carousel Publisher =====\n// Config node se settings uthao (IG User ID + long-lived access token)\nconst cfg = $('Config').first().json;\nconst IG_ID = cfg.igUserId;\nconst TOKEN = cfg.accessToken;\nconst API = cfg.apiBase || 'https://graph.instagram.com/v23.0';\n\n// Jo carousel row aayi hai (Split In Batches, batchSize 1)\nconst row = $input.first().json;\n\n// Slide URLs ikattha karo: slide_1 ... slide_10\nconst urls = [];\nfor (let i = 1; i <= 10; i++) {\n  const u = row['slide_' + i];\n  if (u && String(u).trim() !== '') urls.push(String(u).trim());\n}\nif (urls.length < 2) throw new Error('Carousel ke liye kam se kam 2 slides chahiye (mila: ' + urls.length + ')');\nif (urls.length > 10) urls.length = 10;\n\nconst wait = (ms) => new Promise((r) => setTimeout(r, ms));\n\n// 1) Har slide ka child container banao (is_carousel_item = true)\nconst childIds = [];\nfor (const url of urls) {\n  const res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: API + '/' + IG_ID + '/media',\n    qs: { image_url: url, is_carousel_item: true, access_token: TOKEN },\n    json: true,\n  });\n  if (!res.id) throw new Error('Child container banane me fail: ' + JSON.stringify(res));\n  childIds.push(res.id);\n}\n\n// 2) Parent CAROUSEL container banao (caption sirf yahan lagta hai)\nconst parent = await this.helpers.httpRequest({\n  method: 'POST',\n  url: API + '/' + IG_ID + '/media',\n  qs: {\n    media_type: 'CAROUSEL',\n    children: childIds.join(','),\n    caption: row.caption || '',\n    access_token: TOKEN,\n  },\n  json: true,\n});\nif (!parent.id) throw new Error('Carousel container banane me fail: ' + JSON.stringify(parent));\n\n// 3) Instagram ko multiple assets validate karne ka time do\nawait wait(10000);\n\n// 4) Publish karo\nconst pub = await this.helpers.httpRequest({\n  method: 'POST',\n  url: API + '/' + IG_ID + '/media_publish',\n  qs: { creation_id: parent.id, access_token: TOKEN },\n  json: true,\n});\nif (!pub.id) throw new Error('Publish fail: ' + JSON.stringify(pub));\n\n// 5) Live post ka permalink lo (optional)\nlet permalink = '';\ntry {\n  const info = await this.helpers.httpRequest({\n    method: 'GET',\n    url: API + '/' + pub.id,\n    qs: { fields: 'permalink', access_token: TOKEN },\n    json: true,\n  });\n  permalink = info.permalink || '';\n} catch (e) { /* permalink optional */ }\n\nreturn [{\n  json: {\n    id: row.id,\n    mediaId: pub.id,\n    permalink: permalink,\n    slideCount: urls.length,\n    publishedAt: new Date().toISOString(),\n  },\n}];"
       },
       "id": "0c8208f3-a62b-4e4a-8f9a-9df4e875c3e1",
       "name": "Publish Carousel",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        660,
+        880,
         0
       ]
     },
@@ -143,7 +153,21 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.4,
       "position": [
-        880,
+        1100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "maxItems": 1,
+        "keep": "firstItems"
+      },
+      "id": "a25ca83a-babe-4e58-bd74-6f24e2ec910a",
+      "name": "One Per Run",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        440,
         0
       ]
     }
@@ -175,7 +199,7 @@
       "main": [
         [
           {
-            "node": "Loop Carousels",
+            "node": "One Per Run",
             "type": "main",
             "index": 0
           }
@@ -206,6 +230,17 @@
       ]
     },
     "Mark Done": {
+      "main": [
+        [
+          {
+            "node": "Loop Carousels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One Per Run": {
       "main": [
         [
           {
