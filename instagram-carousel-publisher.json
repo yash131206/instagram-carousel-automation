@@ -1,0 +1,242 @@
+{
+  "name": "Instagram Carousel Publisher (8 posts/month)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 9,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "d43377ee-b151-4023-a1a7-102bd59070de",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ig",
+              "name": "igUserId",
+              "value": "PASTE_YOUR_IG_USER_ID",
+              "type": "string"
+            },
+            {
+              "id": "tk",
+              "name": "accessToken",
+              "value": "PASTE_YOUR_LONG_LIVED_ACCESS_TOKEN",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "91f65ded-74d9-424f-8abf-42e99579992f",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "status",
+              "lookupValue": "ToDo"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a7b4cb0e-e5a3-47f7-89be-246731edbdc1",
+      "name": "Get Pending Posts",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        220,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "PASTE_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "a3aee5e9-b18f-4f12-830b-c54d9cacc507",
+      "name": "Loop Carousels",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ===== Instagram Carousel Publisher =====\n// Config node se settings uthao (IG User ID + long-lived access token)\nconst cfg = $('Config').first().json;\nconst IG_ID = cfg.igUserId;\nconst TOKEN = cfg.accessToken;\nconst API = 'https://graph.facebook.com/v21.0';\n\n// Jo carousel row aayi hai (Split In Batches, batchSize 1)\nconst row = $input.first().json;\n\n// Slide URLs ikattha karo: slide_1 ... slide_10\nconst urls = [];\nfor (let i = 1; i <= 10; i++) {\n  const u = row['slide_' + i];\n  if (u && String(u).trim() !== '') urls.push(String(u).trim());\n}\nif (urls.length < 2) throw new Error('Carousel ke liye kam se kam 2 slides chahiye (mila: ' + urls.length + ')');\nif (urls.length > 10) urls.length = 10;\n\nconst wait = (ms) => new Promise((r) => setTimeout(r, ms));\n\n// 1) Har slide ka child container banao (is_carousel_item = true)\nconst childIds = [];\nfor (const url of urls) {\n  const res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: API + '/' + IG_ID + '/media',\n    qs: { image_url: url, is_carousel_item: true, access_token: TOKEN },\n    json: true,\n  });\n  if (!res.id) throw new Error('Child container banane me fail: ' + JSON.stringify(res));\n  childIds.push(res.id);\n}\n\n// 2) Parent CAROUSEL container banao (caption sirf yahan lagta hai)\nconst parent = await this.helpers.httpRequest({\n  method: 'POST',\n  url: API + '/' + IG_ID + '/media',\n  qs: {\n    media_type: 'CAROUSEL',\n    children: childIds.join(','),\n    caption: row.caption || '',\n    access_token: TOKEN,\n  },\n  json: true,\n});\nif (!parent.id) throw new Error('Carousel container banane me fail: ' + JSON.stringify(parent));\n\n// 3) Instagram ko multiple assets validate karne ka time do\nawait wait(10000);\n\n// 4) Publish karo\nconst pub = await this.helpers.httpRequest({\n  method: 'POST',\n  url: API + '/' + IG_ID + '/media_publish',\n  qs: { creation_id: parent.id, access_token: TOKEN },\n  json: true,\n});\nif (!pub.id) throw new Error('Publish fail: ' + JSON.stringify(pub));\n\n// 5) Live post ka permalink lo (optional)\nlet permalink = '';\ntry {\n  const info = await this.helpers.httpRequest({\n    method: 'GET',\n    url: API + '/' + pub.id,\n    qs: { fields: 'permalink', access_token: TOKEN },\n    json: true,\n  });\n  permalink = info.permalink || '';\n} catch (e) { /* permalink optional */ }\n\nreturn [{\n  json: {\n    id: row.id,\n    mediaId: pub.id,\n    permalink: permalink,\n    slideCount: urls.length,\n    publishedAt: new Date().toISOString(),\n  },\n}];"
+      },
+      "id": "0c8208f3-a62b-4e4a-8f9a-9df4e875c3e1",
+      "name": "Publish Carousel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "status": "Done",
+            "media_id": "={{ $json.mediaId }}",
+            "permalink": "={{ $json.permalink }}"
+          },
+          "matchingColumns": [
+            "id"
+          ]
+        },
+        "options": {}
+      },
+      "id": "862f71e2-98e3-4c45-ba68-c76c84dbe072",
+      "name": "Mark Done",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "PASTE_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Get Pending Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Pending Posts": {
+      "main": [
+        [
+          {
+            "node": "Loop Carousels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Carousels": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Publish Carousel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Carousel": {
+      "main": [
+        [
+          {
+            "node": "Mark Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Done": {
+      "main": [
+        [
+          {
+            "node": "Loop Carousels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "0293188b-193c-4e51-8df5-2ef681a95056",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [],
+  "pinData": {}
+}
