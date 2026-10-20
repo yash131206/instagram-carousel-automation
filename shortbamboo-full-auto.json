@@ -128,7 +128,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// ===== Instagram Carousel Publisher (v3 - auto-detect endpoint) =====\nconst cfg = $('Config').first().json;\nconst TOKEN = cfg.accessToken;\nconst helpers = this.helpers;\n\n// API bases: with version + without version\nconst bases = [];\nconst b0 = (cfg.apiBase || 'https://graph.instagram.com/v23.0').replace(/\\/+$/, '');\nbases.push(b0);\nconst bNo = b0.replace(/\\/v\\d+(\\.\\d+)?$/, '');\nif (bNo !== b0) bases.push(bNo);\n\nconst row = $input.first().json;\n\n// Slide URLs ikattha karo: slide_1 ... slide_10\nconst urls = [];\nfor (let i = 1; i <= 10; i++) {\n  const u = row['slide_' + i];\n  if (u && String(u).trim() !== '') urls.push(String(u).trim());\n}\nif (urls.length < 2) throw new Error('Carousel ke liye kam se kam 2 slides chahiye (mila: ' + urls.length + ')');\nif (urls.length > 10) urls.length = 10;\n\nconst wait = (ms) => new Promise((r) => setTimeout(r, ms));\n\nfunction errText(e) {\n  const parts = [];\n  try { const r = e && e.response; if (r) { if (r.body) parts.push(typeof r.body === 'string' ? r.body : JSON.stringify(r.body)); if (r.data) parts.push(typeof r.data === 'string' ? r.data : JSON.stringify(r.data)); } } catch (_) {}\n  try { if (e && e.error) parts.push(JSON.stringify(e.error)); } catch (_) {}\n  try { if (e && e.message) parts.push(e.message); } catch (_) {}\n  return parts.join(' | ') || String(e);\n}\n\nfunction req(base, method, path, params) {\n  const qs = Object.assign({}, params || {}, { access_token: TOKEN });\n  return helpers.httpRequest({ method, url: base + path, qs, json: true });\n}\n\n// Candidate user ids: config value + /me id + /me user_id + 'me'\nconst ids = [];\nif (cfg.igUserId) ids.push(String(cfg.igUserId).trim());\nfor (const b of bases) {\n  try {\n    const me = await req(b, 'GET', '/me', { fields: 'id,user_id,username' });\n    if (me && me.id) ids.push(String(me.id));\n    if (me && me.user_id) ids.push(String(me.user_id));\n  } catch (_) {}\n}\nids.push('me');\nconst uniqIds = [...new Set(ids.filter(Boolean))];\n\n// Probe: find a (base, id) combo that can create a container\nlet BASE = null, IG = null, firstChildId = null, lastMsg = '';\nouter:\nfor (const b of bases) {\n  for (const id of uniqIds) {\n    try {\n      const res = await req(b, 'POST', '/' + id + '/media', { image_url: urls[0], is_carousel_item: true });\n      if (res && res.id) { BASE = b; IG = id; firstChildId = res.id; break outer; }\n      lastMsg = 'No id in response: ' + JSON.stringify(res);\n    } catch (e) {\n      lastMsg = errText(e);\n    }\n  }\n}\nif (!BASE) throw new Error('Container create nahi hua. Last error: ' + lastMsg);\n\n// Remaining children\nconst childIds = [firstChildId];\nfor (let i = 1; i < urls.length; i++) {\n  const res = await req(BASE, 'POST', '/' + IG + '/media', { image_url: urls[i], is_carousel_item: true });\n  if (!res || !res.id) throw new Error('Child fail: ' + JSON.stringify(res));\n  childIds.push(res.id);\n}\n\n// Parent CAROUSEL container\nconst parent = await req(BASE, 'POST', '/' + IG + '/media', { media_type: 'CAROUSEL', children: childIds.join(','), caption: row.caption || '' });\nif (!parent || !parent.id) throw new Error('Parent fail: ' + JSON.stringify(parent));\n\n// Instagram ko validate karne ka time do\nawait wait(10000);\n\n// Publish\nconst pub = await req(BASE, 'POST', '/' + IG + '/media_publish', { creation_id: parent.id });\nif (!pub || !pub.id) throw new Error('Publish fail: ' + JSON.stringify(pub));\n\n// Permalink (optional)\nlet permalink = '';\ntry { const info = await req(BASE, 'GET', '/' + pub.id, { fields: 'permalink' }); permalink = info.permalink || ''; } catch (_) {}\n\nreturn [{ json: { id: row.id, mediaId: pub.id, permalink: permalink, slideCount: urls.length, usedBase: BASE, usedId: IG, publishedAt: new Date().toISOString() } }];\n"
+        "jsCode": "// ===== Instagram Carousel Publisher (v3 - auto-detect endpoint) =====\nconst cfg = $('Config').first().json;\nconst TOKEN = cfg.accessToken;\nconst helpers = this.helpers;\n\n// API bases: with version + without version\nconst bases = [];\nconst b0 = (cfg.apiBase || 'https://graph.instagram.com/v23.0').replace(/\\/+$/, '');\nbases.push(b0);\nconst bNo = b0.replace(/\\/v\\d+(\\.\\d+)?$/, '');\nif (bNo !== b0) bases.push(bNo);\n\nlet row = $input.first().json || {};\nif (!row.slide_1) { try { row = $('AI + Slides').first().json; } catch (e) {} }\n\n// Slide URLs ikattha karo: slide_1 ... slide_10\nconst urls = [];\nfor (let i = 1; i <= 10; i++) {\n  const u = row['slide_' + i];\n  if (u && String(u).trim() !== '') urls.push(String(u).trim());\n}\nif (urls.length < 2) throw new Error('Carousel ke liye kam se kam 2 slides chahiye (mila: ' + urls.length + ')');\nif (urls.length > 10) urls.length = 10;\n\nconst wait = (ms) => new Promise((r) => setTimeout(r, ms));\n\nfunction errText(e) {\n  const parts = [];\n  try { const r = e && e.response; if (r) { if (r.body) parts.push(typeof r.body === 'string' ? r.body : JSON.stringify(r.body)); if (r.data) parts.push(typeof r.data === 'string' ? r.data : JSON.stringify(r.data)); } } catch (_) {}\n  try { if (e && e.error) parts.push(JSON.stringify(e.error)); } catch (_) {}\n  try { if (e && e.message) parts.push(e.message); } catch (_) {}\n  return parts.join(' | ') || String(e);\n}\n\nfunction req(base, method, path, params) {\n  const qs = Object.assign({}, params || {}, { access_token: TOKEN });\n  return helpers.httpRequest({ method, url: base + path, qs, json: true });\n}\n\n// Candidate user ids: config value + /me id + /me user_id + 'me'\nconst ids = [];\nif (cfg.igUserId) ids.push(String(cfg.igUserId).trim());\nfor (const b of bases) {\n  try {\n    const me = await req(b, 'GET', '/me', { fields: 'id,user_id,username' });\n    if (me && me.id) ids.push(String(me.id));\n    if (me && me.user_id) ids.push(String(me.user_id));\n  } catch (_) {}\n}\nids.push('me');\nconst uniqIds = [...new Set(ids.filter(Boolean))];\n\n// Probe: find a (base, id) combo that can create a container\nlet BASE = null, IG = null, firstChildId = null, lastMsg = '';\nouter:\nfor (const b of bases) {\n  for (const id of uniqIds) {\n    try {\n      const res = await req(b, 'POST', '/' + id + '/media', { image_url: urls[0], is_carousel_item: true });\n      if (res && res.id) { BASE = b; IG = id; firstChildId = res.id; break outer; }\n      lastMsg = 'No id in response: ' + JSON.stringify(res);\n    } catch (e) {\n      lastMsg = errText(e);\n    }\n  }\n}\nif (!BASE) throw new Error('Container create nahi hua. Last error: ' + lastMsg);\n\n// Remaining children\nconst childIds = [firstChildId];\nfor (let i = 1; i < urls.length; i++) {\n  const res = await req(BASE, 'POST', '/' + IG + '/media', { image_url: urls[i], is_carousel_item: true });\n  if (!res || !res.id) throw new Error('Child fail: ' + JSON.stringify(res));\n  childIds.push(res.id);\n}\n\n// Parent CAROUSEL container\nconst parent = await req(BASE, 'POST', '/' + IG + '/media', { media_type: 'CAROUSEL', children: childIds.join(','), caption: row.caption || '' });\nif (!parent || !parent.id) throw new Error('Parent fail: ' + JSON.stringify(parent));\n\n// Instagram ko validate karne ka time do\nawait wait(10000);\n\n// Publish\nconst pub = await req(BASE, 'POST', '/' + IG + '/media_publish', { creation_id: parent.id });\nif (!pub || !pub.id) throw new Error('Publish fail: ' + JSON.stringify(pub));\n\n// Permalink (optional)\nlet permalink = '';\ntry { const info = await req(BASE, 'GET', '/' + pub.id, { fields: 'permalink' }); permalink = info.permalink || ''; } catch (_) {}\n\nreturn [{ json: { id: row.id, mediaId: pub.id, permalink: permalink, slideCount: urls.length, usedBase: BASE, usedId: IG, publishedAt: new Date().toISOString() } }];\n"
       },
       "id": "0c8208f3-a62b-4e4a-8f9a-9df4e875c3e1",
       "name": "Publish Carousel",
@@ -201,6 +201,63 @@
       "position": [
         550,
         0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendAndWait",
+        "chatId": "PASTE_YOUR_TELEGRAM_CHAT_ID",
+        "message": "=🎠 Naya carousel review ke liye\n\n{{ $json.caption }}\n\n(Approve karo to Instagram par post ho jaayega)",
+        "responseType": "approval",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "id": "tg-review-0001",
+      "name": "Telegram Review",
+      "position": [
+        605,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.approved }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "id": "if-approve-0001",
+      "name": "Approved?",
+      "position": [
+        605,
+        120
       ]
     }
   ],
@@ -287,11 +344,34 @@
       "main": [
         [
           {
-            "node": "Loop Carousels",
+            "node": "Telegram Review",
             "type": "main",
             "index": 0
           }
         ]
+      ]
+    },
+    "Telegram Review": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Loop Carousels",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },
