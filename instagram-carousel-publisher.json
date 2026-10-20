@@ -16,7 +16,7 @@
       "id": "d43377ee-b151-4023-a1a7-102bd59070de",
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.2,
+      "typeVersion": 1.1,
       "position": [
         -220,
         0
@@ -77,17 +77,11 @@
       "id": "a7b4cb0e-e5a3-47f7-89be-246731edbdc1",
       "name": "Get Pending Posts",
       "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
+      "typeVersion": 4.4,
       "position": [
         220,
         0
-      ],
-      "credentials": {
-        "googleSheetsOAuth2Api": {
-          "id": "PASTE_CREDENTIAL_ID",
-          "name": "Google Sheets account"
-        }
-      }
+      ]
     },
     {
       "parameters": {
@@ -147,17 +141,11 @@
       "id": "862f71e2-98e3-4c45-ba68-c76c84dbe072",
       "name": "Mark Done",
       "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
+      "typeVersion": 4.4,
       "position": [
         880,
         0
-      ],
-      "credentials": {
-        "googleSheetsOAuth2Api": {
-          "id": "PASTE_CREDENTIAL_ID",
-          "name": "Google Sheets account"
-        }
-      }
+      ]
     }
   ],
   "connections": {
