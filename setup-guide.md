@@ -39,7 +39,15 @@ Reference ke liye, jo steps tumne kiye:
 ## Part 2 — Token aur IG User ID
 
 - **Access token** — `IGAA...` se shuru hone wala lamba string (~60 din chalta hai).
-- **IG User ID** — numeric ID (jaise `17841484077985141`), dashboard me account ke naam ke neeche dikhta hai.
+- **IG User ID** — ye nikalne ke liye ye URL chalao (browser ya curl):
+  `https://graph.instagram.com/v23.0/me
+  Jawab me **`id`** field hi `igUserId` hai (jaise `28732317453043416`).
+
+  ⚠️ **Zaroori:** `user_id` (jaise `17841484077985141`) **mat** use karo — Content Publishing API ke liye woh galat hai aur `500` error deta hai. Sirf **`id`** use karo.
+
+  Example jawab:
+  `{"user_id":"17841484077985141","username":"shortbamboo.in","id":"28732317453043416"}`
+  → `igUserId` = **28732317453043416**
 
 > Dono secret hain. Kisi file/URL/screenshot me na daalo — sirf n8n ke Config node me.
 
